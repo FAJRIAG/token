@@ -1,27 +1,25 @@
-const { U } = require("./_util.cjs");
-module.exports.config = { runtime: "nodejs" };
+// api/dramabox/search.js
+const { proxy, send } = require("./_util.cjs");
 
-module.exports = async function handler(req, res) {
-  if (req.method === "OPTIONS") {
-    U.sendCors(res);
-    return res.status(204).end();
+module.exports = async (req, res) => {
+  const query = String(req.query.query || req.query.q || "");
+
+  // Untuk pencarian, cache lebih pendek
+  const result = await proxy(
+    "/dramabox/search",
+    { query },
+    {
+      ttlMs: 20_000,          // fresh 20s
+      maxStaleMs: 3 * 60_000, // stale 3 menit
+      retry: 2,
+      backoffMs: 300,
+      cbMaxFails: 5,
+      cbOpenMs: 25_000,
+    }
+  );
+
+  if (result.status === 200) {
+    return send(res, result.body, 200, { swr: result.swr });
   }
-  U.sendCors(res);
-
-  const q = ((req.query?.query || req.query?.q || "") + "").trim();
-  const url = `${U.BASE}/dramabox/search?query=${encodeURIComponent(q)}`;
-
-  const r = await U.fetchRetry(url, "search");
-  const data = U.jsonTry(r.text);
-
-  if (r.status === 200 && data) {
-    U.cachePublic(res, 60, 300);
-    return res.status(200).json(data);
-  }
-
-  U.cachePublic(res, 15, 60);
-  return res.status(200).json({
-    data: { records: [] },
-    error: `search fallback: HTTP${r.status}`,
-  });
+  return send(res, { status: result.status, statusText: result.statusText, body: result.body }, result.status);
 };

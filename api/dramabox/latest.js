@@ -1,51 +1,27 @@
-// CommonJS handler
-const { U } = require("./_util.cjs");
-module.exports.config = { runtime: "nodejs" };
+// api/dramabox/latest.js
+const { proxy, send } = require("./_util.cjs");
 
-module.exports = async function handler(req, res) {
-  if (req.method === "OPTIONS") {
-    U.sendCors(res);
-    return res.status(204).end();
-  }
-  U.sendCors(res);
+module.exports = async (req, res) => {
+  const page = String(req.query.page || "1");
 
-  const page = Math.max(1, parseInt((req.query?.page || "1"), 10));
-  const upstream = `${U.BASE}/dramabox/latest?page=${page}`;
-
-  // 1) coba /latest
-  let r = await U.fetchRetry(upstream, "latest");
-  let out = U.jsonTry(r.text);
-
-  // 2) fallback → /home
-  if (r.status !== 200 || !out) {
-    const rHome = await U.fetchRetry(`${U.BASE}/dramabox/home`, "home");
-    const jHome = U.jsonTry(rHome.text);
-    if (rHome.status === 200 && jHome) {
-      const node = jHome.data || jHome;
-      const records = node.records || node.list || [];
-      out = { data: { records, isMore: false }, error: `fallback(home): ${r.status}` };
+  const result = await proxy(
+    "/dramabox/latest",
+    { page },
+    {
+      ttlMs: 45_000,      // fresh 45s
+      maxStaleMs: 5 * 60_000, // boleh 5 menit stale
+      retry: 3,
+      backoffMs: 350,
+      cbMaxFails: 5,
+      cbOpenMs: 30_000,
     }
+  );
+
+  // Jika sukses/stale → kirim 200 dgn body upstream (Laravel happy)
+  if (result.status === 200) {
+    return send(res, result.body, 200, { swr: result.swr });
   }
 
-  // 3) fallback → /populer?page=1
-  if (!out) {
-    const rPop = await U.fetchRetry(`${U.BASE}/dramabox/populer?page=1`, "populer");
-    const jPop = U.jsonTry(rPop.text);
-    if (rPop.status === 200 && jPop) {
-      const node = jPop.data || jPop;
-      const records = node.records || node.list || [];
-      out = { data: { records, isMore: true }, error: `fallback(populer): ${r.status}` };
-    }
-  }
-
-  if (!out) {
-    U.cachePublic(res, 15, 60);
-    return res.status(200).json({
-      data: { records: [], isMore: false },
-      error: `latest failed: HTTP${r.status}`,
-    });
-  }
-
-  U.cachePublic(res, 60, 300);
-  return res.status(200).json(out);
+  // Kalau benar2 gagal & tak ada cache → kirimkan error upstream (bukan 500)
+  return send(res, { status: result.status, statusText: result.statusText, body: result.body }, result.status);
 };
