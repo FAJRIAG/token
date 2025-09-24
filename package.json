@@ -1,0 +1,12 @@
+{
+  "name": "dramabox-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "engines": { "node": "18.x" },
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev"
+  }
+}
