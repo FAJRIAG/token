@@ -1,14 +1,15 @@
-export const config = { runtime: "nodejs" };
-import U from "./_util";
+// CommonJS handler
+const { U } = require("./_util.cjs");
+module.exports.config = { runtime: "nodejs" };
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") {
     U.sendCors(res);
     return res.status(204).end();
   }
   U.sendCors(res);
 
-  const page = Math.max(1, parseInt(req.query.page || "1", 10));
+  const page = Math.max(1, parseInt((req.query?.page || "1"), 10));
   const upstream = `${U.BASE}/dramabox/latest?page=${page}`;
 
   // 1) coba /latest
@@ -37,12 +38,14 @@ export default async function handler(req, res) {
     }
   }
 
-  // 4) jika masih gagal, pulangkan struktur aman
   if (!out) {
     U.cachePublic(res, 15, 60);
-    return res.status(200).json({ data: { records: [], isMore: false }, error: `latest failed: HTTP${r.status}` });
+    return res.status(200).json({
+      data: { records: [], isMore: false },
+      error: `latest failed: HTTP${r.status}`,
+    });
   }
 
   U.cachePublic(res, 60, 300);
   return res.status(200).json(out);
-}
+};
