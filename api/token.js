@@ -1,7 +1,9 @@
+// api/token.js
 export default function handler(req, res) {
   res.status(200).json({
     ok: true,
     ts: Date.now(),
-    info: "FAJRIAG Dramabox Token API"
+    author: "FAJRIAG",
+    msg: "Hello from Token API 🚀"
   });
 }
