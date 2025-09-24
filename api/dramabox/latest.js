@@ -1,19 +1,48 @@
-export const config = { runtime: "nodejs22.x" };
+export const config = { runtime: "nodejs" };
+import U from "./_util";
 
 export default async function handler(req, res) {
-  const page = parseInt(req.query.page || "1", 10);
+  if (req.method === "OPTIONS") {
+    U.sendCors(res);
+    return res.status(204).end();
+  }
+  U.sendCors(res);
 
-  // TODO: ganti ke sumber asli kalau sudah siap
-  const fake = {
-    data: {
-      records: [
-        { bookId: "41000121386", bookName: "Terjebak dalam Kontrak Cinta", chapterCount: 81, coverWap: "https://picsum.photos/400/600?1" },
-        { bookId: "41000121766", bookName: "Kembalinya Sang Petinju", chapterCount: 72, coverWap: "https://picsum.photos/400/600?2" }
-      ],
-      isMore: page < 3
+  const page = Math.max(1, parseInt(req.query.page || "1", 10));
+  const upstream = `${U.BASE}/dramabox/latest?page=${page}`;
+
+  // 1) coba /latest
+  let r = await U.fetchRetry(upstream, "latest");
+  let out = U.jsonTry(r.text);
+
+  // 2) fallback → /home
+  if (r.status !== 200 || !out) {
+    const rHome = await U.fetchRetry(`${U.BASE}/dramabox/home`, "home");
+    const jHome = U.jsonTry(rHome.text);
+    if (rHome.status === 200 && jHome) {
+      const node = jHome.data || jHome;
+      const records = node.records || node.list || [];
+      out = { data: { records, isMore: false }, error: `fallback(home): ${r.status}` };
     }
-  };
+  }
 
-  res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
-  res.status(200).json(fake);
+  // 3) fallback → /populer?page=1
+  if (!out) {
+    const rPop = await U.fetchRetry(`${U.BASE}/dramabox/populer?page=1`, "populer");
+    const jPop = U.jsonTry(rPop.text);
+    if (rPop.status === 200 && jPop) {
+      const node = jPop.data || jPop;
+      const records = node.records || node.list || [];
+      out = { data: { records, isMore: true }, error: `fallback(populer): ${r.status}` };
+    }
+  }
+
+  // 4) jika masih gagal, pulangkan struktur aman
+  if (!out) {
+    U.cachePublic(res, 15, 60);
+    return res.status(200).json({ data: { records: [], isMore: false }, error: `latest failed: HTTP${r.status}` });
+  }
+
+  U.cachePublic(res, 60, 300);
+  return res.status(200).json(out);
 }
